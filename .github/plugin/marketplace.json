@@ -1,0 +1,20 @@
+{
+  "name": "cardinal-copilot-plugin",
+  "metadata": {
+    "description": "Cardinal plugin for GitHub Copilot CLI: telemetry, Investigations and the unified Cardinal MCP tools."
+  },
+  "owner": {
+    "name": "CardinalHQ",
+    "url": "https://cardinalhq.io"
+  },
+  "plugins": [
+    {
+      "name": "cardinal",
+      "source": "./plugins/cardinal",
+      "description": "Connect GitHub Copilot CLI to Cardinal: telemetry to the Outcomes Dashboard, Investigations and Storyboards, and the unified Cardinal MCP tools.",
+      "version": "0.1.0",
+      "homepage": "https://github.com/cardinalhq/cardinal-copilot-plugin",
+      "license": "Apache-2.0"
+    }
+  ]
+}
