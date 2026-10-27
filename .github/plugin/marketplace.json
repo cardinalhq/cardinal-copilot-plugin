@@ -12,7 +12,7 @@
       "name": "cardinal",
       "source": "./plugins/cardinal",
       "description": "Connect GitHub Copilot CLI to Cardinal: telemetry to the Outcomes Dashboard, Investigations and Storyboards, and the unified Cardinal MCP tools.",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "homepage": "https://github.com/cardinalhq/cardinal-copilot-plugin",
       "license": "Apache-2.0"
     }
