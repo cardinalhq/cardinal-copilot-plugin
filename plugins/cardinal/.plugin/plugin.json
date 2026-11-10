@@ -1,6 +1,6 @@
 {
   "name": "cardinal",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "description": "Connect GitHub Copilot CLI to Cardinal: telemetry to the Outcomes Dashboard + unified Cardinal MCP tools, with hooks that derive initiative name and type from the current branch and keep Cardinal Investigations and Storyboards in step with the session.",
   "author": {
     "name": "CardinalHQ",
@@ -13,5 +13,5 @@
   "skills": "skills",
   "agents": "agents",
   "hooks": "hooks/hooks.json",
-  "postInstallMessage": "Run the cardinal-connect skill (or `python3 <plugin directory>/scripts/cardinal-connect` in your own terminal) to connect this machine to Cardinal, then start a new Copilot CLI session."
+  "postInstallMessage": "Run the cardinal-connect skill (or `python3 <plugin directory>/scripts/cardinal-connect` in your own terminal; `python` or `py -3` where `python3` is not found) to connect this machine to Cardinal, then start a new Copilot CLI session."
 }

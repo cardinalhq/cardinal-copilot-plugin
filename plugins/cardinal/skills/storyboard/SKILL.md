@@ -1,9 +1,11 @@
 ---
 name: cardinal-storyboard
-description: Publish a Cardinal storyboard by updating its evidence-bound scenes and visualization, rendering and reviewing previews, then changing the draft status to published. Also use for explicitly requested private visualization updates. Not needed to return a link or record investigation activity.
+description: Publish a Cardinal storyboard by updating its evidence-bound scenes and visualization, rendering and reviewing previews, then changing the draft status to published. Also use for explicitly requested private visualization updates. Milestones are written by this session on its checkpoints; Cardinal never generates them. Not needed to return a link or record investigation activity.
 ---
 
 # Storyboard visualization
+
+**Windows.** Where a command here says `python3`, use `python` (or `py -3`) if `python3` is not found.
 
 Follow [CORE.md](CORE.md) for the authoring, evidence, preview and completion workflow. Use the bound storyboard in this session's context.
 
