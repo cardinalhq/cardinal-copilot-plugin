@@ -76,7 +76,7 @@ try:
         is_git_repo,
         resolve_initiative,
     )
-    from cardinal_core.paths import AgentPaths  # noqa: E402
+    from cardinal_core.paths import AgentPaths, detached, script_command, utf8_stdio  # noqa: E402
 except Exception:
     # An install without its vendored core: exit 0 with no output, so a
     # preToolUse hook never denies a tool call on its account.
@@ -126,6 +126,9 @@ PR_RESOLVE_TIMEOUT_SEC = 1.5
 
 DECISION_CLI = Path(__file__).resolve().parent.parent / "scripts" / "cardinal-decision"
 EVIDENCE_CLI = Path(__file__).resolve().parent.parent / "scripts" / "cardinal-evidence"
+# How the agent is told to run them (on Windows: the running interpreter, in PowerShell syntax).
+DECISION_CMD = script_command(DECISION_CLI, f'python3 "{DECISION_CLI}"')
+EVIDENCE_CMD = script_command(EVIDENCE_CLI, shlex.quote(str(EVIDENCE_CLI)))
 
 # postToolUse does only local work; its network sends run in a detached
 # `--background <spool>` child. Test-only: run that job inline instead.
@@ -219,7 +222,7 @@ def dump_debug_payload(event: str, payload: dict[str, Any]) -> None:
     try:
         PATHS.debug_dir.mkdir(parents=True, exist_ok=True)
         path = PATHS.debug_dir / f"{event}-{time.time_ns()}.json"
-        path.write_text(json.dumps(payload, indent=2, default=str) + "\n")
+        path.write_text(json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8")
     except (OSError, TypeError, ValueError):
         pass
 
@@ -263,7 +266,7 @@ def configured_mcp_servers(cwd: str | None = None) -> list[str]:
     names: list[str] = []
     for f in files:
         try:
-            servers = json.loads(f.read_text()).get("mcpServers")
+            servers = json.loads(f.read_text(encoding="utf-8")).get("mcpServers")
         except (OSError, ValueError, AttributeError):
             continue
         if isinstance(servers, dict):
@@ -412,7 +415,7 @@ def capture_evidence(payload: dict[str, Any], failed: bool = False, call: Any = 
             call = evidence_call(payload, failed)
         if call is None:
             return None
-        got = cap.capture_call_guarded(call, Path.home(), promote_cmd=shlex.quote(str(EVIDENCE_CLI)))
+        got = cap.capture_call_guarded(call, Path.home(), promote_cmd=EVIDENCE_CMD)
         return got.line if got is not None else None
     except BaseException:
         return None
@@ -617,13 +620,16 @@ _ENV_FLAGS_WITH_VALUE = frozenset({"-u", "--unset", "-C", "--chdir"})
 _MENTIONS_RECORD_RE = re.compile(r"cardinal-decision[\"']?\s+record\b")
 
 
-def _simple_commands(command: str) -> list[list[str]]:
+def _simple_commands(command: str, windows: bool = os.name == "nt") -> list[list[str]]:
     """Shell-aware split of `command` into the words of each simple
     command. `;`, `&`, `|`, `(`, `)` and newlines separate commands;
     quoting and escapes follow POSIX shlex; backslash-newline continues a
-    line. Raises ValueError on unbalanced quotes."""
+    line. Raises ValueError on unbalanced quotes. On Windows the shell is
+    PowerShell, where a backslash is a path separator, never an escape."""
     text = command.replace("\\\r\n", " ").replace("\\\n", " ")
     lexer = shlex.shlex(text, posix=True, punctuation_chars=_OPERATOR_CHARS)
+    if windows:
+        lexer.escape = ""
     lexer.whitespace = " \t\r"
     lexer.whitespace_split = True
     commands: list[list[str]] = []
@@ -640,10 +646,20 @@ def _simple_commands(command: str) -> list[list[str]]:
     return commands
 
 
-def _record_argv(words: list[str]) -> list[str] | None:
+def _program(word: str, windows: bool) -> str:
+    """The program a command word names. On Windows: either path separator,
+    any letter case, `.exe` optional."""
+    if not windows:
+        return os.path.basename(word)
+    name = re.split(r"[\\/]", word)[-1].lower()
+    return name[:-4] if name.endswith(".exe") else name
+
+
+def _record_argv(words: list[str], windows: bool = os.name == "nt") -> list[str] | None:
     """argv (starting at `record`) when this simple command runs
-    `cardinal-decision record`, directly or as `python3 [flags] <path>`,
-    optionally behind `VAR=x` assignments and `env [flags] VAR=x`."""
+    `cardinal-decision record`, directly or as `python3 [flags] <path>`
+    (on Windows also `python.exe` or the `py` launcher), optionally behind
+    `VAR=x` assignments and `env [flags] VAR=x`."""
     i, n = 0, len(words)
     while i < n:
         word = words[i]
@@ -655,7 +671,8 @@ def _record_argv(words: list[str]) -> list[str] | None:
                 i += 2 if words[i] in _ENV_FLAGS_WITH_VALUE else 1
         else:
             break
-    if i < n and _PYTHON_INTERPRETER_RE.match(os.path.basename(words[i])):
+    name = _program(words[i], windows) if i < n else ""
+    if _PYTHON_INTERPRETER_RE.match(name) or (windows and name == "py"):
         i += 1
         while i < n and words[i].startswith("-") and words[i] != "-":
             flag = words[i]
@@ -667,22 +684,22 @@ def _record_argv(words: list[str]) -> list[str] | None:
                 return None  # python -c / -m: not running the script
             else:
                 i += 1
-    if i + 1 < n and os.path.basename(words[i]) == "cardinal-decision" and words[i + 1] == "record":
+    if i + 1 < n and _program(words[i], windows) == "cardinal-decision" and words[i + 1] == "record":
         return words[i + 1:]
     return None
 
 
-def decision_invocations(command: str) -> tuple[list[list[str]], str | None]:
+def decision_invocations(command: str, windows: bool = os.name == "nt") -> tuple[list[list[str]], str | None]:
     """(argv per `cardinal-decision record` run in `command`, parse error)."""
     if "cardinal-decision" not in command:
         return [], None
     try:
-        commands = _simple_commands(command)
+        commands = _simple_commands(command, windows)
     except ValueError as err:
         if _MENTIONS_RECORD_RE.search(command):
             return [], f"could not parse the shell command ({err})"
         return [], None
-    return [argv for argv in (_record_argv(words) for words in commands) if argv], None
+    return [argv for argv in (_record_argv(words, windows) for words in commands) if argv], None
 
 
 def confirmation_markers(tool_output: Any) -> list[dict[str, Any]]:
@@ -859,7 +876,7 @@ def spawn_background(job: dict[str, Any]) -> None:
         tmp = spool_dir / f".{base}.tmp"
         path = spool_dir / f"{base}.json"
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "w") as fh:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(job, fh, default=str)
         os.replace(tmp, path)
     except (OSError, TypeError, ValueError):
@@ -878,7 +895,7 @@ def spawn_background(job: dict[str, Any]) -> None:
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True,
+            **detached(),
             close_fds=True,
         )
     except OSError:
@@ -890,7 +907,7 @@ def spawn_background(job: dict[str, Any]) -> None:
 
 def run_background_job(path: Path) -> None:
     try:
-        job = json.loads(path.read_text())
+        job = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return
     finally:
@@ -1177,7 +1194,7 @@ def decision_context(sid: str) -> str | None:
         "Cardinal decision capture is on for this session. When you make a choice that "
         "constrains later work (picking between approaches, settling an open question, or "
         "the user deciding something), record it right away with one shell command:\n"
-        f"python3 \"{DECISION_CLI}\" record --choice '<the option chosen, 2-7 words>' "
+        f"{DECISION_CMD} record --choice '<the option chosen, 2-7 words>' "
         "--question '<what had to be settled>' --why '<one sentence>' "
         "[--alt '<rejected option>']... [--by user] [--anchor <path>[::Symbol]]... "
         "[--follows|--refines|--supersedes <id>]\n"
@@ -1563,6 +1580,7 @@ def main() -> None:
         silent_exit()
 
     try:
+        utf8_stdio()
         raw = sys.stdin.read()
         payload = json.loads(raw) if raw.strip() else {}
     except (OSError, ValueError):
